@@ -33,7 +33,7 @@ func (c *Container) Name() string {
 }
 
 // Bucket returns the google bucket attributes
-func (c *Container) Bucket() *storage.BucketHandle{
+func (c *Container) Bucket() *storage.BucketHandle {
 	return c.client.Bucket(c.name)
 }
 
@@ -85,7 +85,7 @@ func (c *Container) RemoveItem(id string) error {
 // Put sends a request to upload content to the container. The arguments
 // received are the name of the item, a reader representing the
 // content, and the size of the file.
-func (c *Container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *Container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	obj := c.Bucket().Object(name)
 
 	mdPrepped, err := prepMetadata(metadata)
@@ -102,6 +102,11 @@ func (c *Container) Put(name string, r io.Reader, size int64, metadata map[strin
 	attr, err := obj.Update(c.ctx, storage.ObjectAttrsToUpdate{Metadata: mdPrepped})
 	if err != nil {
 		return nil, err
+	}
+
+	actualSize := attr.Size
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
 	}
 
 	return c.convertToStowItem(attr)

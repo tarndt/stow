@@ -1,13 +1,13 @@
 package sftp
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/graymeta/stow"
+	"github.com/pkg/errors"
 )
 
 type container struct {
@@ -165,17 +165,12 @@ func (c *container) RemoveItem(id string) error {
 }
 
 // Put sends a request to upload content to the container.
-func (c *container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	if len(metadata) > 0 {
 		return nil, stow.NotSupported("metadata")
 	}
 
 	path := filepath.Join(c.location.config.basePath, c.name, filepath.FromSlash(name))
-	item := &item{
-		container: c,
-		path:      name,
-		size:      size,
-	}
 	err := c.location.sftpClient.MkdirAll(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -185,20 +180,25 @@ func (c *container) Put(name string, r io.Reader, size int64, metadata map[strin
 		return nil, err
 	}
 	defer f.Close()
-	n, err := io.Copy(f, r)
+	actualSize, err := io.Copy(f, r)
 	if err != nil {
 		return nil, err
 	}
-	if n != size {
-		return nil, errors.New("bad size")
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
 	}
 
 	info, err := c.location.sftpClient.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	item.modTime = info.ModTime()
-	item.md = getFileMetadata(info)
 
+	item := &item{
+		container: c,
+		path:      name,
+		size:      actualSize,
+		modTime:   info.ModTime(),
+		md:        getFileMetadata(info),
+	}
 	return item, nil
 }

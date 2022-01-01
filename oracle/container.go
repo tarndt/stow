@@ -65,13 +65,14 @@ func (c *container) Items(prefix, cursor string, count int) ([]stow.Item, string
 }
 
 // Put creates or updates a CloudStorage object within the given container.
-func (c *container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	mdPrepped, err := prepMetadata(metadata)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create or update Item, preparing metadata")
 	}
 
-	_, err = c.client.ObjectPut(c.id, name, r, false, "", "", nil)
+	cr := stow.NewCountingReader(r)
+	_, err = c.client.ObjectPut(c.id, name, cr, false, "", "", nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create or update Item")
 	}
@@ -81,11 +82,16 @@ func (c *container) Put(name string, r io.Reader, size int64, metadata map[strin
 		return nil, errors.Wrap(err, "unable to update Item metadata")
 	}
 
+	actualSize := cr.Bytes()
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
+	}
+
 	item := &item{
 		id:        name,
 		container: c,
 		client:    c.client,
-		size:      size,
+		size:      actualSize,
 		// not setting metadata here, the refined version isn't available
 		// unless an explicit getItem() is done. Possible to write a func to facilitate
 		// this.

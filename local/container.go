@@ -1,12 +1,13 @@
 package local
 
 import (
-	"errors"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"github.com/graymeta/stow"
 )
@@ -48,7 +49,7 @@ func (c *container) RemoveItem(id string) error {
 	return os.Remove(id)
 }
 
-func (c *container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	if len(metadata) > 0 {
 		return nil, stow.NotSupported("metadata")
 	}
@@ -67,12 +68,13 @@ func (c *container) Put(name string, r io.Reader, size int64, metadata map[strin
 		return nil, err
 	}
 	defer f.Close()
-	n, err := io.Copy(f, r)
+	actualSize, err := io.Copy(f, r)
 	if err != nil {
 		return nil, err
 	}
-	if n != size {
-		return nil, errors.New("bad size")
+
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
 	}
 	return item, nil
 }

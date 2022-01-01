@@ -108,24 +108,29 @@ func (c *container) RemoveItem(id string) error {
 // received are the name of the item (S3 Object), a reader representing the
 // content, and the size of the file. Many more attributes can be given to the
 // file, including metadata. Keeping it simple for now.
-func (c *container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	// Convert map[string]interface{} to map[string]*string
 	mdPrepped, err := prepMetadata(metadata)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create or update item, preparing metadata")
 	}
 
+	cr := stow.NewCountingReader(r)
 	uploader := s3manager.NewUploaderWithClient(c.client)
 	_, err = uploader.Upload(&s3manager.UploadInput{
 		Bucket:   aws.String(c.name), // Required
 		Key:      aws.String(name),   // Required
-		Body:     r,
+		Body:     cr,
 		Metadata: mdPrepped, // map[string]*string
 	})
-
 	if err != nil {
 		return nil, errors.Wrap(err, "PutObject, putting object")
 	}
+	actualSize := cr.Bytes()
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
+	}
+
 	i, err := c.client.HeadObject(&s3.HeadObjectInput{
 		Key:    aws.String(name),
 		Bucket: aws.String(c.name),
@@ -146,7 +151,7 @@ func (c *container) Put(name string, r io.Reader, size int64, metadata map[strin
 		properties: properties{
 			ETag: &etag,
 			Key:  &name,
-			Size: &size,
+			Size: &actualSize,
 			//LastModified *time.Time
 			//Owner        *s3.Owner
 			//StorageClass *string

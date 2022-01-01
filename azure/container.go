@@ -82,25 +82,36 @@ func (c *container) Items(prefix, cursor string, count int) ([]stow.Item, string
 	return items, listblobs.NextMarker, nil
 }
 
-func (c *container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	mdParsed, err := prepMetadata(metadata)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create or update Item, preparing metadata")
 	}
 
 	name = strings.Replace(name, " ", "+", -1)
+	cr := stow.NewCountingReader(r)
+	if expectedSize <= stow.SizeUnknown || expectedSize > maxPutSize {
+		const defAssumedSize = 64 * 1024 * 1024
+		assumedSize := int64(defAssumedSize)
+		if expectedSize > maxPutSize {
+			assumedSize = expectedSize
+		}
 
-	if size > maxPutSize {
 		// Do a multipart upload
-		err := c.multipartUpload(name, r, size)
+		err := c.multipartUpload(name, cr, assumedSize)
 		if err != nil {
 			return nil, errors.Wrap(err, "multipart upload")
 		}
 	} else {
-		err = c.client.GetContainerReference(c.id).GetBlobReference(name).CreateBlockBlobFromReader(r, nil)
+		err = c.client.GetContainerReference(c.id).GetBlobReference(name).CreateBlockBlobFromReader(cr, nil)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to create or update Item")
 		}
+	}
+
+	actualSize := cr.Bytes()
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
 	}
 
 	err = c.SetItemMetadata(name, mdParsed)
@@ -115,7 +126,7 @@ func (c *container) Put(name string, r io.Reader, size int64, metadata map[strin
 		properties: az.BlobProperties{
 			LastModified:  az.TimeRFC1123(time.Now()),
 			Etag:          "",
-			ContentLength: size,
+			ContentLength: actualSize,
 		},
 	}
 	return item, nil
