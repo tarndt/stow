@@ -34,7 +34,7 @@ var (
 	ErrBadCursor = errors.New("bad cursor")
 )
 
-var (
+const (
 	// CursorStart is a string representing a cursor pointing
 	// to the first page of items or containers.
 	CursorStart = ""
@@ -43,6 +43,9 @@ var (
 	// in any function that asks for a prefix value, but where one is
 	// not appropriate.
 	NoPrefix = ""
+
+	// SizeUnknown is a int64 representing the length of a stream of unknown size
+	SizeUnknown = -1
 )
 
 // IsCursorEnd checks whether the cursor indicates there are no

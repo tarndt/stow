@@ -84,7 +84,7 @@ func (c *container) Items(prefix, cursor string, count int) ([]stow.Item, string
 }
 
 // Put uploads a file
-func (c *container) Put(name string, r io.Reader, size int64, metadata map[string]interface{}) (stow.Item, error) {
+func (c *container) Put(name string, r io.Reader, expectedSize int64, metadata map[string]interface{}) (stow.Item, error) {
 	// Convert map[string]interface{} to map[string]string
 	mdPrepped, err := prepMetadata(metadata)
 	if err != nil {
@@ -96,10 +96,15 @@ func (c *container) Put(name string, r io.Reader, size int64, metadata map[strin
 		return nil, err
 	}
 
+	actualSize := file.ContentLength
+	if expectedSize > stow.SizeUnknown && actualSize != expectedSize {
+		return nil, errors.Errorf("Put was told size was %d but actual stream size was %d", expectedSize, actualSize)
+	}
+
 	return &item{
 		id:     file.ID,
 		name:   file.Name,
-		size:   file.ContentLength,
+		size:   actualSize,
 		bucket: c.bucket,
 	}, nil
 }
